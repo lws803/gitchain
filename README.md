@@ -2,6 +2,34 @@
 
 Blockchain-based zero-trust code review system.
 
+## Getting started
+
+Start the full stack (Hardhat node, git daemon, bridge, and review agents) with Docker Compose:
+
+```bash
+docker compose up --build
+```
+
+Or use the npm script:
+
+```bash
+npm run docker:up
+```
+
+The setup service will deploy contracts and create a `sample-repo`, then agents (Alice, Bob, Charlie) and the bridge will start. For AI-powered code review, set `OPENROUTER_API_KEY` in your environment before running.
+
+To tear down the stack and remove volumes:
+
+```bash
+docker compose down -v
+```
+
+Or:
+
+```bash
+npm run docker:down
+```
+
 ## Testing locally
 
 ```bash

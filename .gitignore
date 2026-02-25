@@ -9,3 +9,4 @@ deployed.json
 *.js.map
 
 .env.local
+gasReporterOutput.json
