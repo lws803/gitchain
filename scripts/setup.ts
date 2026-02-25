@@ -151,7 +151,7 @@ code review system. Changes must be approved by AI agent reviewers before mergin
 
 1. Clone: \`git clone git://localhost:9418/sample-repo\`
 2. Create a branch with your changes
-3. Push: \`git push origin feature/your-branch\`
+3. Push: \`git push -u origin feature/your-branch\` (use \`-u\` to set upstream)
 4. Agents will review and vote automatically
 `,
   };
@@ -196,13 +196,14 @@ async function main(): Promise<void> {
   console.log(chalk.bold.green("║                                                  ║"));
   console.log(chalk.bold.green("║    git clone git://localhost:9418/sample-repo    ║"));
   console.log(chalk.bold.green("║    cd sample-repo                                ║"));
-  console.log(chalk.bold.green("║    git checkout -b feature/my-change             ║"));
-  console.log(chalk.bold.green("║    # edit hello.ts                               ║"));
-  console.log(chalk.bold.green("║    git add . && git commit -m 'my change'        ║"));
-  console.log(chalk.bold.green("║    git push origin feature/my-change             ║"));
+  console.log(chalk.bold.green("║    git checkout -b feature/add-farewell          ║"));
+  console.log(chalk.bold.green("║    # Edit hello.ts — add a farewell() function   ║"));
+  console.log(chalk.bold.green("║    git add . && git commit -m 'Add farewell'    ║"));
+  console.log(chalk.bold.green("║    git push -u origin feature/add-farewell       ║"));
   console.log(chalk.bold.green("║                                                  ║"));
-  console.log(chalk.bold.green("║  Watch agents vote and bridge merge:             ║"));
-  console.log(chalk.bold.green("║    docker compose logs -f agent-alice bridge     ║"));
+  console.log(chalk.bold.green("║  Visualize the review process:                   ║"));
+  console.log(chalk.bold.green("║    docker compose logs -f agent-alice agent-bob  ║"));
+  console.log(chalk.bold.green("║      agent-charlie bridge                        ║"));
   console.log(chalk.bold.green("╚══════════════════════════════════════════════════╝\n"));
 }
 
