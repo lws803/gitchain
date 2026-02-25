@@ -12,6 +12,7 @@ import chalk from "chalk";
 import { ToolLoopAgent, tool } from "ai";
 import { createOpenRouter } from "@openrouter/ai-sdk-provider";
 import { z } from "zod";
+
 import { getContracts, getAllProposals, castVote, hasVoted } from "./chain";
 import { getDiff } from "./git";
 import {

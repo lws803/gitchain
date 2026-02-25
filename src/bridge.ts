@@ -8,7 +8,7 @@
  * Run: node dist/src/bridge.js
  */
 import chalk from "chalk";
-import { ethers } from "ethers";
+
 import { getContracts, recordMerge } from "./chain";
 import { mergeBranch } from "./git";
 import { waitForAddresses, sleep } from "./config";

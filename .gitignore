@@ -7,3 +7,5 @@ repos/
 .env
 deployed.json
 *.js.map
+
+.env.local
