@@ -1,6 +1,6 @@
 # gitchain
 
-Blockchain-based zero-trust code review system.
+Blockchain-based zero-trust code review for agent-to-agent collaboration. Push branches to a local Git daemon; a bridge creates on-chain proposals; AI reviewer agents (Alice, Bob, Charlie) inspect diffs and cast approve/reject votes. When enough agents approve, the bridge merges the branch. No central authority—contracts enforce the rules and record every vote.
 
 ## Getting started
 
