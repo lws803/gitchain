@@ -13,13 +13,17 @@ import { ToolLoopAgent, tool } from "ai";
 import { createOpenRouter } from "@openrouter/ai-sdk-provider";
 import { z } from "zod";
 
-import { getContracts, getAllProposals, castVote, hasVoted } from "./chain";
+import {
+  getContracts,
+  getAllProposals,
+  castVote,
+  getOpenUnvotedProposals,
+} from "./chain";
 import { getDiff } from "./git";
 import {
   waitForAddresses,
   sleep,
   POLL_INTERVAL_MS,
-  ProposalState,
   ProposalInfo,
 } from "./config";
 import type { Contracts } from "./chain";
@@ -73,50 +77,13 @@ function buildAgent(contracts: Contracts, signerAddress: string) {
     instructions: `You are ${AGENT_NAME}, an AI code reviewer in the gitchain system.
 Your wallet address is ${signerAddress}.
 
-Your job each round:
-1. Call getOpenProposals to list proposals you have not yet voted on.
-2. For each proposal, call getProposalDiff to read the code changes.
-3. Decide: call approveProposal if the change looks correct and safe,
-   or rejectProposal if the change introduces a bug, breaks existing logic,
-   or is unclear. Always provide a brief reason.
-
-Only vote on proposals listed by getOpenProposals (others are already voted or closed).
-When there are no proposals left to review, stop calling tools.`,
+You are given a list of open proposals you have not yet voted on.
+For each proposal, call getProposalDiff to read the code changes, then
+call approveProposal if the change looks correct and safe, or rejectProposal
+if it introduces a bug, breaks existing logic, or is unclear. Always provide a brief reason.
+When done with all proposals, stop calling tools.`,
 
     tools: {
-      getOpenProposals: tool({
-        description:
-          "Returns all proposals in Open state that this agent has not yet voted on.",
-        inputSchema: z.object({}),
-        execute: async () => {
-          const all = await getAllProposals(contracts);
-          const unvoted: Array<{
-            id: string;
-            repoId: string;
-            branch: string;
-            commitHash: string;
-            description: string;
-          }> = [];
-
-          for (const p of all) {
-            if (p.state !== ProposalState.Open) continue;
-            const voted = await hasVoted(contracts, p.id, signerAddress);
-            if (!voted) {
-              unvoted.push({
-                id: p.id.toString(),
-                repoId: p.repoId,
-                branch: p.branchName,
-                commitHash: p.commitHash,
-                description: p.description,
-              });
-            }
-          }
-
-          logTool("getOpenProposals", `found ${unvoted.length} unvoted`);
-          return unvoted;
-        },
-      }),
-
       getProposalDiff: tool({
         description:
           "Returns the unified diff of code changes proposed in a given proposal.",
@@ -193,18 +160,27 @@ async function runAgent(): Promise<void> {
 
   while (true) {
     try {
-      log("Checking for open proposals...");
-      await agent.generate({
-        prompt:
-          "Check for open proposals and review any you have not yet voted on. " +
-          "When done, stop.",
-      });
-    } catch (err) {
-      // If it's just "no proposals", that's fine
-      const msg = (err as Error).message ?? "";
-      if (!msg.includes("No open proposals")) {
-        log(chalk.yellow(`Poll error: ${msg}`));
+      const unvoted = await getOpenUnvotedProposals(contracts, signerAddress);
+
+      if (unvoted.length === 0) {
+        log(chalk.dim("No open proposals to review"));
+      } else {
+        log(`Found ${unvoted.length} open proposal(s) to review`);
+        const proposalList = unvoted
+          .map(
+            (p) =>
+              `- #${p.id} (${p.repoId}/${p.branch}): ${
+                p.description || "(no description)"
+              }`
+          )
+          .join("\n");
+        await agent.generate({
+          prompt: `Review these open proposals:\n${proposalList}\n\nFor each, call getProposalDiff then approve or reject with a brief reason.`,
+        });
       }
+    } catch (err) {
+      const msg = (err as Error).message ?? "";
+      log(chalk.yellow(`Poll error: ${msg}`));
     }
 
     await sleep(POLL_INTERVAL_MS);

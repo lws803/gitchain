@@ -181,6 +181,44 @@ export async function hasVoted(
   return contracts.proposals.hasVoted(proposalId, voterAddress);
 }
 
+export async function getOpenUnvotedProposals(
+  contracts: Contracts,
+  signerAddress: string
+): Promise<
+  Array<{
+    id: string;
+    repoId: string;
+    branch: string;
+    commitHash: string;
+    description: string;
+  }>
+> {
+  const all = await getAllProposals(contracts);
+  const unvoted: Array<{
+    id: string;
+    repoId: string;
+    branch: string;
+    commitHash: string;
+    description: string;
+  }> = [];
+
+  for (const p of all) {
+    if (p.state !== ProposalState.Open) continue;
+    const voted = await hasVoted(contracts, p.id, signerAddress);
+    if (!voted) {
+      unvoted.push({
+        id: p.id.toString(),
+        repoId: p.repoId,
+        branch: p.branchName,
+        commitHash: p.commitHash,
+        description: p.description,
+      });
+    }
+  }
+
+  return unvoted;
+}
+
 // ── Normalizer ────────────────────────────────────────────────────────────────
 
 // ethers returns structs as array-like objects — normalise to plain ProposalInfo.
