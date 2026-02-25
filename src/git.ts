@@ -62,7 +62,14 @@ export function createInitialCommit(
       "Initial commit",
       `--author=${author.name} <${author.email}>`,
     ],
-    { cwd: wt }
+    {
+      cwd: wt,
+      env: {
+        ...process.env,
+        GIT_COMMITTER_NAME: author.name,
+        GIT_COMMITTER_EMAIL: author.email,
+      },
+    }
   );
 
   const sha = child_process
@@ -124,7 +131,14 @@ export async function createBranchWithChanges(
   child_process.execFileSync(
     "git",
     ["commit", "-m", message, `--author=${author.name} <${author.email}>`],
-    { cwd: wt }
+    {
+      cwd: wt,
+      env: {
+        ...process.env,
+        GIT_COMMITTER_NAME: author.name,
+        GIT_COMMITTER_EMAIL: author.email,
+      },
+    }
   );
 
   const sha = child_process
