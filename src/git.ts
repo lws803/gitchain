@@ -221,10 +221,21 @@ export async function mergeBranch(
         encoding: "utf8",
       })
       .trim();
-    child_process.execFileSync("git", ["push", "origin", "master"], {
-      cwd: wt,
-    });
-    return sha;
+
+    const marker = bridgeMergeMarkerPath(repoId);
+    try {
+      fs.writeFileSync(marker, "", "utf8");
+      child_process.execFileSync("git", ["push", "origin", "master"], {
+        cwd: wt,
+      });
+      return sha;
+    } finally {
+      try {
+        fs.unlinkSync(marker);
+      } catch {
+        /* pre-receive may have already removed it */
+      }
+    }
   } finally {
     fs.rmSync(wt, { recursive: true, force: true });
   }
@@ -248,7 +259,46 @@ export function readFileAtRef(
     .trim();
 }
 
-// ── Install hook ──────────────────────────────────────────────────────────────
+// ── Install hooks ─────────────────────────────────────────────────────────────
+
+/** Marker file the bridge creates before pushing to master. Pre-receive allows master push only when present. */
+function bridgeMergeMarkerPath(repoId: string): string {
+  return path.join(REPOS_DIR, `.gitchain-bridge-merge-${repoId}`);
+}
+
+/**
+ * Installs the pre-receive hook into the bare repo.
+ * Rejects direct pushes to master; the bridge creates a marker before merging.
+ */
+export function installPreReceiveHook(repoId: string): void {
+  const dir = repoPath(repoId);
+  const hooksDir = path.join(dir, "hooks");
+  fs.mkdirSync(hooksDir, { recursive: true });
+
+  const hookPath = path.join(hooksDir, "pre-receive");
+  const hookScript = `#!/bin/sh
+# pre-receive hook — reject direct pushes to master; bridge merges allowed via marker
+repos_dir=$(dirname "$GIT_DIR")
+repo_id=$(basename "$GIT_DIR")
+marker="$repos_dir/.gitchain-bridge-merge-$repo_id"
+
+while read oldrev newrev refname; do
+  case "$refname" in
+    refs/heads/master)
+      if [ -f "$marker" ]; then
+        rm -f "$marker"
+      else
+        echo "error: Direct pushes to master are rejected. Create a branch and push it for review."
+        exit 1
+      fi
+      ;;
+  esac
+done
+exit 0
+`;
+
+  fs.writeFileSync(hookPath, hookScript, { mode: 0o755 });
+}
 
 /**
  * Installs the post-receive hook into the bare repo.

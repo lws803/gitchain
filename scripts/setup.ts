@@ -7,7 +7,7 @@
  * 3. Saves contract addresses to /app/shared/deployed.json
  * 4. Registers 3 AI reviewer agents (wallets 1-3)
  * 5. Initialises the sample bare repo with a seed commit
- * 6. Installs the post-receive hook into the bare repo
+ * 6. Installs pre-receive and post-receive hooks into the bare repo
  * 7. Exits 0 — Docker marks it service_completed_successfully
  */
 import * as fs from "fs";
@@ -18,6 +18,7 @@ import { HARDHAT_RPC, REPOS_DIR, saveAddresses, sleep } from "../src/config";
 import {
   initBareRepo,
   createInitialCommit,
+  installPreReceiveHook,
   installPostReceiveHook,
 } from "../src/git";
 import { getContracts, registerReviewer } from "../src/chain";
@@ -168,10 +169,11 @@ code review system. Changes must be approved by AI agent reviewers before mergin
 
 // ── 5. Install post-receive hook ──────────────────────────────────────────────
 
-function installHook(): void {
-  console.log(chalk.cyan("\n[setup] Installing post-receive hook..."));
+function installHooks(): void {
+  console.log(chalk.cyan("\n[setup] Installing hooks..."));
+  installPreReceiveHook(SAMPLE_REPO);
   installPostReceiveHook(SAMPLE_REPO);
-  console.log(chalk.green("[setup]   Hook installed."));
+  console.log(chalk.green("[setup]   Hooks installed."));
 }
 
 // ── Main ──────────────────────────────────────────────────────────────────────
@@ -189,7 +191,7 @@ async function main(): Promise<void> {
 
   await registerReviewers(addresses);
   await initSampleRepo();
-  installHook();
+  installHooks();
 
   console.log(chalk.bold.green("\n╔══════════════════════════════════════════════════╗"));
   console.log(chalk.bold.green("║  Gitchain is ready!                              ║"));
