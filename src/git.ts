@@ -1,14 +1,11 @@
 /**
- * git.ts — Programmatic git operations using isomorphic-git.
+ * git.ts — Git operations using shell git.
  *
- * All operations work on bare repos (no working directory) stored in REPOS_DIR.
- * The bridge merges into the bare repo directly. Agents read diffs from the bare
- * repo. The setup script creates the initial bare repo and commits.
+ * Repos are bare (git init --bare). All ops use child_process for reliability.
  */
+import * as child_process from "child_process";
 import * as fs from "fs";
 import * as path from "path";
-import git from "isomorphic-git";
-import http from "isomorphic-git/http/node";
 
 import { REPOS_DIR } from "./config";
 
@@ -27,48 +24,59 @@ function worktreePath(repoId: string, suffix: string): string {
 // ── Init ─────────────────────────────────────────────────────────────────────
 
 /**
- * Initialises a new bare git repository.
- * A bare repo has no working directory — only the .git contents at root.
+ * Initialises a true bare git repository (git init --bare).
+ * Git daemon expects bare repos; post-receive hooks live at repo/hooks.
  */
-export async function initBareRepo(repoId: string): Promise<void> {
+export function initBareRepo(repoId: string): void {
   const dir = repoPath(repoId);
-  fs.mkdirSync(dir, { recursive: true });
-
-  // isomorphic-git doesn't have a native --bare init, so we init normally
-  // then mark it as bare and rename the config.
-  await git.init({ fs, dir });
-
-  // Write the initial main branch name
-  await git.setConfig({ fs, dir, path: "core.bare", value: "false" });
-  await git.setConfig({ fs, dir, path: "init.defaultBranch", value: "main" });
+  fs.mkdirSync(path.dirname(dir), { recursive: true });
+  if (fs.existsSync(path.join(dir, "HEAD"))) return; // already a bare repo
+  child_process.execFileSync("git", ["init", "--bare", dir]);
 }
 
 /**
- * Creates the initial commit on main with a seed file.
- * Must be called right after initBareRepo, before git daemon is started.
+ * Creates the initial commit and pushes to the bare repo.
  */
-export async function createInitialCommit(
+export function createInitialCommit(
   repoId: string,
   files: Record<string, string>,
   author: { name: string; email: string }
-): Promise<string> {
-  const dir = repoPath(repoId);
+): string {
+  const bare = repoPath(repoId);
+  const wt = worktreePath(repoId, "init");
 
-  // Write files
+  fs.mkdirSync(wt, { recursive: true });
+  child_process.execFileSync("git", ["init", "-b", "master"], { cwd: wt });
+
   for (const [filePath, content] of Object.entries(files)) {
-    const fullPath = path.join(dir, filePath);
+    const fullPath = path.join(wt, filePath);
     fs.mkdirSync(path.dirname(fullPath), { recursive: true });
     fs.writeFileSync(fullPath, content, "utf8");
-    await git.add({ fs, dir, filepath: filePath });
   }
+  child_process.execFileSync("git", ["add", "-A"], { cwd: wt });
+  child_process.execFileSync(
+    "git",
+    [
+      "commit",
+      "-m",
+      "Initial commit",
+      `--author=${author.name} <${author.email}>`,
+    ],
+    { cwd: wt }
+  );
 
-  const sha = await git.commit({
-    fs,
-    dir,
-    message: "Initial commit",
-    author,
+  const sha = child_process
+    .execFileSync("git", ["rev-parse", "HEAD"], { cwd: wt, encoding: "utf8" })
+    .trim();
+
+  child_process.execFileSync("git", ["remote", "add", "origin", bare], {
+    cwd: wt,
+  });
+  child_process.execFileSync("git", ["push", "-u", "origin", "master"], {
+    cwd: wt,
   });
 
+  fs.rmSync(wt, { recursive: true, force: true });
   return sha;
 }
 
@@ -77,12 +85,13 @@ export async function createInitialCommit(
 /**
  * Returns the commit hash (SHA) of the HEAD of a branch.
  */
-export async function getCommitHash(
-  repoId: string,
-  branch: string
-): Promise<string> {
+export function getCommitHash(repoId: string, branch: string): string {
   const dir = repoPath(repoId);
-  return git.resolveRef({ fs, dir, ref: branch });
+  return child_process
+    .execFileSync("git", ["--git-dir", dir, "rev-parse", branch], {
+      encoding: "utf8",
+    })
+    .trim();
 }
 
 /**
@@ -101,112 +110,61 @@ export async function createBranchWithChanges(
   const bare = repoPath(repoId);
   const wt = worktreePath(repoId, branch.replace(/\//g, "-"));
 
-  // Clone the bare repo into a temp worktree
+  // Clone, branch, commit, push — isomorphic-git doesn't support file://; use shell git
   fs.mkdirSync(wt, { recursive: true });
-  await git.clone({
-    fs,
-    http,
-    dir: wt,
-    url: `file://${bare}`,
-    singleBranch: true,
-    ref: "main",
-  });
+  child_process.execFileSync("git", ["clone", "--branch", "master", bare, wt]);
+  child_process.execFileSync("git", ["checkout", "-b", branch], { cwd: wt });
 
-  // Create and checkout the new branch
-  await git.branch({ fs, dir: wt, ref: branch, checkout: true });
-
-  // Apply file changes
   for (const [filePath, content] of Object.entries(files)) {
     const fullPath = path.join(wt, filePath);
     fs.mkdirSync(path.dirname(fullPath), { recursive: true });
     fs.writeFileSync(fullPath, content, "utf8");
-    await git.add({ fs, dir: wt, filepath: filePath });
   }
+  child_process.execFileSync("git", ["add", "-A"], { cwd: wt });
+  child_process.execFileSync(
+    "git",
+    ["commit", "-m", message, `--author=${author.name} <${author.email}>`],
+    { cwd: wt }
+  );
 
-  // Commit
-  const sha = await git.commit({ fs, dir: wt, message, author });
+  const sha = child_process
+    .execFileSync("git", ["rev-parse", "HEAD"], {
+      cwd: wt,
+      encoding: "utf8",
+    })
+    .trim();
 
-  // Push to the bare repo
-  await git.push({
-    fs,
-    http,
-    dir: wt,
-    url: `file://${bare}`,
-    ref: branch,
-    remoteRef: branch,
-    force: false,
-    onAuth: () => ({ username: "git" }),
-  });
+  child_process.execFileSync("git", ["push", "origin", branch], { cwd: wt });
 
-  // Clean up worktree
   fs.rmSync(wt, { recursive: true, force: true });
-
   return sha;
 }
 
 // ── Diff ─────────────────────────────────────────────────────────────────────
 
 /**
- * Returns a human-readable unified diff between two branches.
- * Compares the file trees of `base` and `branch` in the bare repo.
+ * Returns a unified diff between two branches using shell git.
+ * Works reliably on bare repos; avoids isomorphic-git's bare-repo quirks.
  */
-export async function getDiff(
+export function getDiff(
   repoId: string,
   baseBranch: string,
   featureBranch: string
-): Promise<string> {
+): string {
   const dir = repoPath(repoId);
-
-  const baseOid = await git.resolveRef({ fs, dir, ref: baseBranch });
-  const featureOid = await git.resolveRef({ fs, dir, ref: featureBranch });
-
-  const diff = await git.walk({
-    fs,
-    dir,
-    trees: [git.TREE({ ref: baseOid }), git.TREE({ ref: featureOid })],
-    map: async (filepath, [baseEntry, featureEntry]) => {
-      // Skip directories
-      if (
-        (baseEntry && (await baseEntry.type()) === "tree") ||
-        (featureEntry && (await featureEntry.type()) === "tree")
-      ) {
-        return null;
-      }
-
-      const baseContent = baseEntry
-        ? new TextDecoder().decode(
-            (await baseEntry.content()) ?? new Uint8Array()
-          )
-        : "";
-      const featureContent = featureEntry
-        ? new TextDecoder().decode(
-            (await featureEntry.content()) ?? new Uint8Array()
-          )
-        : "";
-
-      if (baseContent === featureContent) return null;
-
-      // Build a simple unified-diff-style output
-      const baseLines = baseContent ? baseContent.split("\n") : [];
-      const featureLines = featureContent ? featureContent.split("\n") : [];
-
-      const removals = baseLines
-        .filter((l) => !featureLines.includes(l))
-        .map((l) => `- ${l}`);
-      const additions = featureLines
-        .filter((l) => !baseLines.includes(l))
-        .map((l) => `+ ${l}`);
-
-      return `--- ${filepath} (${baseBranch})\n+++ ${filepath} (${featureBranch})\n${removals.join(
-        "\n"
-      )}\n${additions.join("\n")}`;
-    },
-  });
-
-  const filtered = (diff as (string | null)[]).filter(Boolean) as string[];
-  return filtered.length > 0
-    ? filtered.join("\n\n")
-    : "(no textual differences)";
+  try {
+    const out = child_process.execFileSync(
+      "git",
+      ["--git-dir", dir, "diff", `${baseBranch}..${featureBranch}`],
+      { encoding: "utf8", maxBuffer: 1024 * 1024 }
+    );
+    return out.trim() || "(no textual differences)";
+  } catch (err) {
+    const msg = (err as Error).message ?? String(err);
+    throw new Error(
+      `Could not get diff: ${baseBranch}..${featureBranch} — ${msg}`
+    );
+  }
 }
 
 // ── Merge ─────────────────────────────────────────────────────────────────────
@@ -225,54 +183,34 @@ export async function mergeBranch(
 
   try {
     fs.mkdirSync(wt, { recursive: true });
-
-    // Clone the bare repo
-    await git.clone({
-      fs,
-      http,
-      dir: wt,
-      url: `file://${bare}`,
-      singleBranch: false,
+    child_process.execFileSync("git", ["clone", bare, wt]);
+    child_process.execFileSync(
+      "git",
+      [
+        "merge",
+        `origin/${featureBranch}`,
+        "-m",
+        `Merge branch '${featureBranch}' into master via gitchain`,
+      ],
+      {
+        cwd: wt,
+        env: {
+          ...process.env,
+          GIT_AUTHOR_NAME: "gitchain-bridge",
+          GIT_AUTHOR_EMAIL: "bridge@gitchain.local",
+        },
+      }
+    );
+    const sha = child_process
+      .execFileSync("git", ["rev-parse", "HEAD"], {
+        cwd: wt,
+        encoding: "utf8",
+      })
+      .trim();
+    child_process.execFileSync("git", ["push", "origin", "master"], {
+      cwd: wt,
     });
-
-    // Fetch the feature branch explicitly
-    await git.fetch({
-      fs,
-      http,
-      dir: wt,
-      url: `file://${bare}`,
-      ref: featureBranch,
-      remoteRef: featureBranch,
-    });
-
-    // Merge feature branch into main
-    const result = await git.merge({
-      fs,
-      dir: wt,
-      ours: "main",
-      theirs: featureBranch,
-      author: { name: "gitchain-bridge", email: "bridge@gitchain.local" },
-      message: `Merge branch '${featureBranch}' into main via gitchain`,
-    });
-
-    if (!result.mergeCommit) {
-      // Fast-forward — HEAD already updated
-    }
-
-    // Push merged main back to bare repo
-    await git.push({
-      fs,
-      http,
-      dir: wt,
-      url: `file://${bare}`,
-      ref: "main",
-      remoteRef: "main",
-      force: false,
-      onAuth: () => ({ username: "git" }),
-    });
-
-    // Return new HEAD on main
-    return git.resolveRef({ fs, dir: wt, ref: "HEAD" });
+    return sha;
   } finally {
     fs.rmSync(wt, { recursive: true, force: true });
   }
@@ -283,22 +221,24 @@ export async function mergeBranch(
 /**
  * Reads the content of a file at a specific branch/ref in the bare repo.
  */
-export async function readFileAtRef(
+export function readFileAtRef(
   repoId: string,
   branch: string,
   filePath: string
-): Promise<string> {
+): string {
   const dir = repoPath(repoId);
-  const oid = await git.resolveRef({ fs, dir, ref: branch });
-  const { blob } = await git.readBlob({ fs, dir, oid, filepath: filePath });
-  return new TextDecoder().decode(blob);
+  return child_process
+    .execFileSync("git", ["--git-dir", dir, "show", `${branch}:${filePath}`], {
+      encoding: "utf8",
+    })
+    .trim();
 }
 
 // ── Install hook ──────────────────────────────────────────────────────────────
 
 /**
- * Installs the post-receive hook into a bare repo.
- * The hook fires when `git push` delivers branches and calls `gitchain propose`.
+ * Installs the post-receive hook into the bare repo.
+ * For bare repos, hooks live at repo/hooks (repo root = $GIT_DIR).
  */
 export function installPostReceiveHook(repoId: string): void {
   const dir = repoPath(repoId);
@@ -313,12 +253,14 @@ while read oldrev newrev refname; do
   branch=$(echo "$refname" | sed 's|refs/heads/||')
 
   # Skip main — merges land here via the bridge, not direct push
-  if [ "$branch" = "main" ] || [ "$branch" = "HEAD" ]; then
+  if [ "$branch" = "master" ] || [ "$branch" = "HEAD" ]; then
     continue
   fi
 
   echo "[gitchain] Branch pushed: $branch ($newrev)"
-  node /app/dist/src/cli.js propose ${repoId} "$branch" "$newrev" "Push: $branch"
+  if ! node /app/dist/src/cli.js propose ${repoId} "$branch" "$newrev" "Push: $branch" 2>&1; then
+    echo "[gitchain] WARNING: propose failed for $branch — agents will not see this proposal"
+  fi
 done
 `;
 

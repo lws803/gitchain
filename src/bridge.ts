@@ -50,7 +50,7 @@ async function startBridge(): Promise<void> {
 
         console.log(
           chalk.cyan(
-            `[bridge] Merging branch "${branchName}" into main in repo "${repoId}"...`
+            `[bridge] Merging branch "${branchName}" into master in repo "${repoId}"...`
           )
         );
 

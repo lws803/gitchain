@@ -35,9 +35,16 @@ contract ReviewerRegistry {
     ) external onlyOwner {
         require(wallet != address(0), "ReviewerRegistry: zero address");
         require(bytes(name).length > 0, "ReviewerRegistry: empty name");
-        require(!_agents[wallet].isActive, "ReviewerRegistry: already registered");
+        require(
+            !_agents[wallet].isActive,
+            "ReviewerRegistry: already registered"
+        );
 
-        _agents[wallet] = Agent({ name: name, publicKey: publicKey, isActive: true });
+        _agents[wallet] = Agent({
+            name: name,
+            publicKey: publicKey,
+            isActive: true
+        });
         _reviewerList.push(wallet);
 
         emit ReviewerRegistered(wallet, name);

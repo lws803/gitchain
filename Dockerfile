@@ -1,7 +1,7 @@
 FROM node:20-alpine
 
-# git is needed by git-server (git daemon) and by the post-receive hook
-RUN apk add --no-cache curl git
+# git is needed by post-receive hook; git-daemon provides `git daemon` for git-server
+RUN apk add --no-cache curl git git-daemon
 
 WORKDIR /app
 

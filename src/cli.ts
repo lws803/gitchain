@@ -172,7 +172,7 @@ program
         chalk.bold(`\nDiff for Proposal #${p.id} — ${p.branchName}\n`)
       );
 
-      const diffText = await getDiff(p.repoId, "main", p.branchName);
+      const diffText = getDiff(p.repoId, "master", p.branchName);
 
       // Colorize diff output
       for (const line of diffText.split("\n")) {

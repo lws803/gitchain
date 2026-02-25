@@ -25,8 +25,8 @@ contract ProposalManager {
         uint256 approvalCount;
         uint256 rejectionCount;
         string mergedCommitHash;
-        // voters tracked separately in _votes mapping
     }
+    // voters tracked separately in _votes mapping
 
     /// @notice Flat view struct — no nested mappings, safe to return from external calls.
     struct ProposalInfo {
@@ -69,7 +69,10 @@ contract ProposalManager {
     event MergeRecorded(uint256 indexed id, string mergedCommitHash);
 
     constructor(address registryAddress, uint256 threshold) {
-        require(registryAddress != address(0), "ProposalManager: zero registry");
+        require(
+            registryAddress != address(0),
+            "ProposalManager: zero registry"
+        );
         require(threshold > 0, "ProposalManager: threshold must be > 0");
         registry = ReviewerRegistry(registryAddress);
         approvalThreshold = threshold;
@@ -108,8 +111,14 @@ contract ProposalManager {
     ///         Requires: active reviewer, not already voted, proposal is Open.
     function vote(uint256 proposalId, bool approve) external {
         require(proposalId < proposalCount, "ProposalManager: invalid id");
-        require(registry.isReviewer(msg.sender), "ProposalManager: not a reviewer");
-        require(!_votes[proposalId][msg.sender], "ProposalManager: already voted");
+        require(
+            registry.isReviewer(msg.sender),
+            "ProposalManager: not a reviewer"
+        );
+        require(
+            !_votes[proposalId][msg.sender],
+            "ProposalManager: already voted"
+        );
 
         Proposal storage p = _proposals[proposalId];
         require(p.state == ProposalState.Open, "ProposalManager: not open");
@@ -139,8 +148,14 @@ contract ProposalManager {
     ) external {
         require(proposalId < proposalCount, "ProposalManager: invalid id");
         Proposal storage p = _proposals[proposalId];
-        require(p.state == ProposalState.Approved, "ProposalManager: not approved");
-        require(bytes(mergedCommitHash).length > 0, "ProposalManager: empty hash");
+        require(
+            p.state == ProposalState.Approved,
+            "ProposalManager: not approved"
+        );
+        require(
+            bytes(mergedCommitHash).length > 0,
+            "ProposalManager: empty hash"
+        );
 
         p.state = ProposalState.Merged;
         p.mergedCommitHash = mergedCommitHash;
@@ -149,33 +164,31 @@ contract ProposalManager {
     }
 
     /// @notice Returns the flat ProposalInfo for a given ID.
-    function getProposal(uint256 proposalId)
-        external
-        view
-        returns (ProposalInfo memory)
-    {
+    function getProposal(
+        uint256 proposalId
+    ) external view returns (ProposalInfo memory) {
         require(proposalId < proposalCount, "ProposalManager: invalid id");
         Proposal storage p = _proposals[proposalId];
-        return ProposalInfo({
-            id: p.id,
-            repoId: p.repoId,
-            branchName: p.branchName,
-            commitHash: p.commitHash,
-            description: p.description,
-            proposer: p.proposer,
-            state: p.state,
-            approvalCount: p.approvalCount,
-            rejectionCount: p.rejectionCount,
-            mergedCommitHash: p.mergedCommitHash
-        });
+        return
+            ProposalInfo({
+                id: p.id,
+                repoId: p.repoId,
+                branchName: p.branchName,
+                commitHash: p.commitHash,
+                description: p.description,
+                proposer: p.proposer,
+                state: p.state,
+                approvalCount: p.approvalCount,
+                rejectionCount: p.rejectionCount,
+                mergedCommitHash: p.mergedCommitHash
+            });
     }
 
     /// @notice Returns true if the voter has voted on the proposal.
-    function hasVoted(uint256 proposalId, address voter)
-        external
-        view
-        returns (bool)
-    {
+    function hasVoted(
+        uint256 proposalId,
+        address voter
+    ) external view returns (bool) {
         return _votes[proposalId][voter];
     }
 }

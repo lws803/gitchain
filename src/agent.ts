@@ -130,7 +130,7 @@ When there are no proposals left to review, stop calling tools.`,
           );
           if (!p) return { error: "Proposal not found" };
 
-          const diff = await getDiff(p.repoId, "main", p.branchName);
+          const diff = getDiff(p.repoId, "master", p.branchName);
           logTool(
             "getProposalDiff",
             `proposal #${proposalId} (${p.branchName})`
