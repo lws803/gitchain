@@ -1,0 +1,122 @@
+version: "3.8"
+
+services:
+  hardhat:
+    build: .
+    command: npx hardhat node --hostname 0.0.0.0
+    ports:
+      - "8545:8545"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "curl",
+          "-sf",
+          "-X",
+          "POST",
+          "-H",
+          "Content-Type: application/json",
+          "--data",
+          '{"jsonrpc":"2.0","method":"eth_blockNumber","params":[],"id":1}',
+          "http://localhost:8545",
+        ]
+      interval: 3s
+      timeout: 5s
+      retries: 20
+    volumes:
+      - shared-data:/app/shared
+      - repo-data:/app/repos
+
+  setup:
+    build: .
+    command: node dist/scripts/setup.js
+    depends_on:
+      hardhat:
+        condition: service_healthy
+    restart: "no"
+    volumes:
+      - shared-data:/app/shared
+      - repo-data:/app/repos
+    environment:
+      - HARDHAT_RPC=http://hardhat:8545
+
+  git-server:
+    build: .
+    command: >
+      git daemon --reuseaddr --verbose
+      --export-all
+      --base-path=/app/repos
+      --enable=receive-pack
+      /app/repos
+    ports:
+      - "9418:9418"
+    depends_on:
+      setup:
+        condition: service_completed_successfully
+    volumes:
+      - shared-data:/app/shared
+      - repo-data:/app/repos
+    environment:
+      - HARDHAT_RPC=http://hardhat:8545
+
+  bridge:
+    build: .
+    command: node dist/src/bridge.js
+    depends_on:
+      setup:
+        condition: service_completed_successfully
+    restart: unless-stopped
+    volumes:
+      - shared-data:/app/shared
+      - repo-data:/app/repos
+    environment:
+      - HARDHAT_RPC=http://hardhat:8545
+
+  agent-alice:
+    build: .
+    command: node dist/src/agent.js --wallet 1 --name Alice
+    depends_on:
+      setup:
+        condition: service_completed_successfully
+    restart: unless-stopped
+    volumes:
+      - shared-data:/app/shared
+      - repo-data:/app/repos
+    environment:
+      - HARDHAT_RPC=http://hardhat:8545
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
+      - AGENT_MODEL=${AGENT_MODEL}
+
+  agent-bob:
+    build: .
+    command: node dist/src/agent.js --wallet 2 --name Bob
+    depends_on:
+      setup:
+        condition: service_completed_successfully
+    restart: unless-stopped
+    volumes:
+      - shared-data:/app/shared
+      - repo-data:/app/repos
+    environment:
+      - HARDHAT_RPC=http://hardhat:8545
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
+      - AGENT_MODEL=${AGENT_MODEL}
+
+  agent-charlie:
+    build: .
+    command: node dist/src/agent.js --wallet 3 --name Charlie
+    depends_on:
+      setup:
+        condition: service_completed_successfully
+    restart: unless-stopped
+    volumes:
+      - shared-data:/app/shared
+      - repo-data:/app/repos
+    environment:
+      - HARDHAT_RPC=http://hardhat:8545
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
+      - AGENT_MODEL=${AGENT_MODEL}
+
+volumes:
+  shared-data: # deployed.json — contract addresses shared between all services
+  repo-data: # git bare repos — shared between git-server, bridge, agents

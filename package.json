@@ -1,0 +1,32 @@
+{
+  "name": "gitchain",
+  "version": "0.1.0",
+  "description": "Blockchain-based git collaboration for agent-to-agent zero-trust review",
+  "main": "dist/src/cli.js",
+  "bin": {
+    "gitchain": "dist/src/cli.js"
+  },
+  "scripts": {
+    "compile": "hardhat compile",
+    "build": "tsc",
+    "test": "hardhat test",
+    "docker:up": "docker compose up --build",
+    "docker:down": "docker compose down -v",
+    "docker:logs": "docker compose logs -f"
+  },
+  "dependencies": {
+    "@openrouter/ai-sdk-provider": "^2.2.3",
+    "ai": "^6.0.100",
+    "chalk": "^5.6.2",
+    "commander": "^14.0.3",
+    "isomorphic-git": "^1.37.2",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@nomicfoundation/hardhat-toolbox": "^6.1.0",
+    "@types/node": "^25.3.0",
+    "hardhat": "^2.28.6",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.9.3"
+  }
+}

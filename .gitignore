@@ -1,0 +1,9 @@
+node_modules/
+dist/
+cache/
+artifacts/
+typechain-types/
+repos/
+.env
+deployed.json
+*.js.map
