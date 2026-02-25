@@ -222,20 +222,14 @@ export async function mergeBranch(
       })
       .trim();
 
-    const marker = bridgeMergeMarkerPath(repoId);
-    try {
-      fs.writeFileSync(marker, "", "utf8");
-      child_process.execFileSync("git", ["push", "origin", "master"], {
-        cwd: wt,
-      });
-      return sha;
-    } finally {
-      try {
-        fs.unlinkSync(marker);
-      } catch {
-        /* pre-receive may have already removed it */
-      }
-    }
+    child_process.execFileSync("git", ["push", "origin", "master"], {
+      cwd: wt,
+      env: {
+        ...process.env,
+        [GITCHAIN_BRIDGE_MERGE]: "1",
+      },
+    });
+    return sha;
   } finally {
     fs.rmSync(wt, { recursive: true, force: true });
   }
@@ -261,14 +255,12 @@ export function readFileAtRef(
 
 // ── Install hooks ─────────────────────────────────────────────────────────────
 
-/** Marker file the bridge creates before pushing to master. Pre-receive allows master push only when present. */
-function bridgeMergeMarkerPath(repoId: string): string {
-  return path.join(REPOS_DIR, `.gitchain-bridge-merge-${repoId}`);
-}
+/** Env var the bridge sets when pushing to master. Pre-receive allows master push only when set. */
+export const GITCHAIN_BRIDGE_MERGE = "GITCHAIN_BRIDGE_MERGE";
 
 /**
  * Installs the pre-receive hook into the bare repo.
- * Rejects direct pushes to master; the bridge creates a marker before merging.
+ * Rejects direct pushes to master; the bridge sets GITCHAIN_BRIDGE_MERGE=1 when merging.
  */
 export function installPreReceiveHook(repoId: string): void {
   const dir = repoPath(repoId);
@@ -277,16 +269,12 @@ export function installPreReceiveHook(repoId: string): void {
 
   const hookPath = path.join(hooksDir, "pre-receive");
   const hookScript = `#!/bin/sh
-# pre-receive hook — reject direct pushes to master; bridge merges allowed via marker
-repos_dir=$(dirname "$GIT_DIR")
-repo_id=$(basename "$GIT_DIR")
-marker="$repos_dir/.gitchain-bridge-merge-$repo_id"
-
+# pre-receive hook — reject direct pushes to master; bridge sets GITCHAIN_BRIDGE_MERGE when merging
 while read oldrev newrev refname; do
   case "$refname" in
     refs/heads/master)
-      if [ -f "$marker" ]; then
-        rm -f "$marker"
+      if [ "$GITCHAIN_BRIDGE_MERGE" = "1" ]; then
+        :
       else
         echo "error: Direct pushes to master are rejected. Create a branch and push it for review."
         exit 1

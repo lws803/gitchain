@@ -127,10 +127,11 @@ async function initSampleRepo(): Promise<void> {
   const masterRef = path.join(repoDir, "refs", "heads", "master");
 
   // Skip only if repo exists AND has the initial commit (not just an empty bare repo from a failed run)
-  if (fs.existsSync(masterRef)) {
-    console.log(chalk.dim(`\n[setup] Repo "${SAMPLE_REPO}" already exists — skipping init.`));
-    return;
-  }
+  // TODO: uncomment this for persistence
+  // if (fs.existsSync(masterRef)) {
+  //   console.log(chalk.dim(`\n[setup] Repo "${SAMPLE_REPO}" already exists — skipping init.`));
+  //   return;
+  // }
 
   console.log(chalk.cyan(`\n[setup] Initialising sample repo "${SAMPLE_REPO}"...`));
 
