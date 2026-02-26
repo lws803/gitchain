@@ -5,6 +5,7 @@
  */
 import * as child_process from "child_process";
 import * as fs from "fs";
+import * as os from "os";
 import * as path from "path";
 
 import { REPOS_DIR } from "./config";
@@ -88,18 +89,6 @@ export function createInitialCommit(
 }
 
 // ── Branch operations ─────────────────────────────────────────────────────────
-
-/**
- * Returns the commit hash (SHA) of the HEAD of a branch.
- */
-export function getCommitHash(repoId: string, branch: string): string {
-  const dir = repoPath(repoId);
-  return child_process
-    .execFileSync("git", ["--git-dir", dir, "rev-parse", branch], {
-      encoding: "utf8",
-    })
-    .trim();
-}
 
 /**
  * Creates a temporary worktree clone, makes file changes on a new branch,
@@ -235,95 +224,37 @@ export async function mergeBranch(
   }
 }
 
-// ── Exploration (for agents) ──────────────────────────────────────────────────
+// ── Review clone (for Claude Agent SDK) ───────────────────────────────────────
 
 /**
- * Lists branches in the repo.
+ * Creates a temporary clone checked out to the given branch.
+ * Used by review agents so Claude Agent SDK's Read/Grep/Glob can operate on real files.
+ * Uses clone so multiple agents can review the same branch concurrently without conflicts.
+ * Call removeReviewClone when done.
  */
-export function listBranches(repoId: string): string[] {
-  const dir = repoPath(repoId);
-  const out = child_process.execFileSync(
-    "git",
-    ["--git-dir", dir, "branch", "-a"],
-    { encoding: "utf8" }
+export function createReviewClone(repoId: string, branch: string): string {
+  const bare = repoPath(repoId);
+  const randomId = Math.random().toString(36).slice(2, 10);
+  const clonePath = path.join(
+    os.tmpdir(),
+    `gitchain-clone-${repoId}-${Date.now()}-${randomId}`
   );
-  return out
-    .split("\n")
-    .map((b) =>
-      b
-        .replace(/^\*\s*/, "")
-        .replace(/^remotes\/origin\//, "")
-        .trim()
-    )
-    .filter(Boolean);
+  fs.mkdirSync(path.dirname(clonePath), { recursive: true });
+  child_process.execFileSync("git", [
+    "clone",
+    "--branch",
+    branch,
+    bare,
+    clonePath,
+  ]);
+  return clonePath;
 }
 
 /**
- * Lists files in a branch (optionally under a directory).
+ * Removes a review clone created by createReviewClone.
  */
-export function listFilesAtRef(
-  repoId: string,
-  branch: string,
-  dirPath = ""
-): string[] {
-  const dir = repoPath(repoId);
-  const ref = dirPath ? `${branch}:${dirPath}` : branch;
-  try {
-    const out = child_process.execFileSync(
-      "git",
-      ["--git-dir", dir, "ls-tree", "-r", "--name-only", ref],
-      { encoding: "utf8" }
-    );
-    return out.trim().split("\n").filter(Boolean);
-  } catch {
-    return [];
-  }
-}
-
-/**
- * Search for a pattern in files at a given branch. Returns matching lines.
- */
-export function grepInRepo(
-  repoId: string,
-  branch: string,
-  pattern: string
-): { file: string; line: number; content: string }[] {
-  const dir = repoPath(repoId);
-  try {
-    const out = child_process.execFileSync(
-      "git",
-      ["--git-dir", dir, "grep", "-n", "-e", pattern, branch, "--"],
-      { encoding: "utf8", maxBuffer: 1024 * 1024 }
-    );
-    const results: { file: string; line: number; content: string }[] = [];
-    for (const line of out.trim().split("\n")) {
-      const m = line.match(/^([^:]+):(\d+):(.+)$/);
-      if (m)
-        results.push({ file: m[1], line: parseInt(m[2], 10), content: m[3] });
-    }
-    return results;
-  } catch (err) {
-    // git grep exits 1 when no matches
-    const code = (err as { code?: number }).code;
-    if (code === 1) return [];
-    throw err;
-  }
-}
-
-/**
- * Reads the content of a file at a specific branch/ref in the bare repo.
- */
-export function readFileAtRef(
-  repoId: string,
-  branch: string,
-  filePath: string
-): string {
-  const dir = repoPath(repoId);
-  return child_process
-    .execFileSync("git", ["--git-dir", dir, "show", `${branch}:${filePath}`], {
-      encoding: "utf8",
-    })
-    .trim();
+export function removeReviewClone(clonePath: string): void {
+  fs.rmSync(clonePath, { recursive: true, force: true });
 }
 
 // ── Install hooks ─────────────────────────────────────────────────────────────

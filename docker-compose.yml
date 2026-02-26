@@ -82,8 +82,7 @@ services:
       - repo-data:/app/repos
     environment:
       - HARDHAT_RPC=http://hardhat:8545
-      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
-      - AGENT_MODEL=${AGENT_MODEL}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
 
   agent-bob:
     build: .
@@ -97,8 +96,7 @@ services:
       - repo-data:/app/repos
     environment:
       - HARDHAT_RPC=http://hardhat:8545
-      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
-      - AGENT_MODEL=${AGENT_MODEL}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
 
   agent-charlie:
     build: .
@@ -112,8 +110,7 @@ services:
       - repo-data:/app/repos
     environment:
       - HARDHAT_RPC=http://hardhat:8545
-      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
-      - AGENT_MODEL=${AGENT_MODEL}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
 
 volumes:
   shared-data: # deployed.json — contract addresses shared between all services

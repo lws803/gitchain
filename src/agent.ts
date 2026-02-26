@@ -1,16 +1,20 @@
 /**
- * agent.ts — AI-powered code review agent using Vercel AI SDK's ToolLoopAgent.
+ * agent.ts — AI-powered code review agent using Anthropic Claude Agent SDK.
  *
  * Each agent runs as a separate process with its own wallet (index).
  * It polls every POLL_INTERVAL_MS for open proposals it hasn't voted on,
- * then uses a ToolLoopAgent to read the diff and cast a vote.
+ * creates a temporary clone for the proposal branch, runs Claude with
+ * built-in Read/Grep/Glob plus custom approve/reject tools, then removes the clone.
  *
  * Run: node dist/src/agent.js --wallet 1 --name Alice
  */
 import { Command } from "commander";
 import chalk from "chalk";
-import { ToolLoopAgent, tool } from "ai";
-import { createOpenRouter } from "@openrouter/ai-sdk-provider";
+import {
+  createSdkMcpServer,
+  query,
+  tool,
+} from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
 
 import {
@@ -19,20 +23,9 @@ import {
   castVote,
   getOpenUnvotedProposals,
 } from "./chain";
-import {
-  getDiff,
-  readFileAtRef,
-  listBranches,
-  listFilesAtRef,
-  grepInRepo,
-  getCommitHash,
-} from "./git";
-import {
-  waitForAddresses,
-  sleep,
-  POLL_INTERVAL_MS,
-  ProposalInfo,
-} from "./config";
+import { getDiff, createReviewClone, removeReviewClone } from "./git";
+import type { ProposalInfo } from "./config";
+import { waitForAddresses, sleep, POLL_INTERVAL_MS } from "./config";
 import type { Contracts } from "./chain";
 
 // ── CLI args ─────────────────────────────────────────────────────────────────
@@ -47,17 +40,13 @@ const opts = program.opts<{ wallet: string; name: string }>();
 const WALLET_INDEX = parseInt(opts.wallet, 10);
 const AGENT_NAME = opts.name;
 
-// ── OpenRouter setup ─────────────────────────────────────────────────────────
+// ── Auth ─────────────────────────────────────────────────────────────────────
 
-const apiKey = process.env.OPENROUTER_API_KEY;
-const model = process.env.AGENT_MODEL ?? "openai/gpt-4o-mini";
-
+const apiKey = process.env.ANTHROPIC_API_KEY;
 if (!apiKey) {
-  console.error(chalk.red(`[${AGENT_NAME}] OPENROUTER_API_KEY is not set.`));
+  console.error(chalk.red(`[${AGENT_NAME}] ANTHROPIC_API_KEY is not set.`));
   process.exit(1);
 }
-
-const openrouter = createOpenRouter({ apiKey });
 
 // ── Logging helpers ───────────────────────────────────────────────────────────
 
@@ -71,196 +60,117 @@ const logTool = (name: string, detail: string) =>
     )} ${detail}`
   );
 
-// ── Build ToolLoopAgent ───────────────────────────────────────────────────────
+// ── MCP server with gitchain tools ───────────────────────────────────────────
 
-/**
- * Creates a ToolLoopAgent with access to gitchain tools.
- * Contracts are injected via closure so they're available to tool executors.
- */
-function buildAgent(contracts: Contracts, signerAddress: string) {
-  return new ToolLoopAgent({
-    model: openrouter.chat(model),
-
-    instructions: `You are ${AGENT_NAME}, an AI code reviewer in the gitchain system.
-Your wallet address is ${signerAddress}.
-
-You are given a list of open proposals you have not yet voted on.
-For each proposal, you can:
-- getProposalDiff — get the unified diff
-- readFile — read a file at a specific branch (use master or the proposal branch)
-- grepInRepo — search for a pattern in files at a branch
-- listFiles — list files in a branch
-- listBranches — list branches in the repo
-- inspectBranch — get the HEAD commit of a branch (confirm it exists)
-
-Then approveProposal if the change looks correct and safe, or rejectProposal
-if it introduces a bug, breaks existing logic, or is unclear. Always provide a brief reason.
-When done with all proposals, stop calling tools.`,
-
-    tools: {
-      readFile: tool({
-        description:
-          "Read the contents of a file at a given branch in a repo. Use to inspect full file context beyond the diff.",
-        inputSchema: z.object({
-          repoId: z.string().describe("The repo ID (e.g. from a proposal)"),
-          branch: z
-            .string()
-            .describe(
-              "Branch to read from (e.g. master or the proposal branch)"
-            ),
-          filePath: z
-            .string()
-            .describe("Path to the file relative to repo root"),
-        }),
-        execute: async ({ repoId, branch, filePath }) => {
-          try {
-            const content = readFileAtRef(repoId, branch, filePath);
-            logTool("readFile", `${repoId}/${branch}:${filePath}`);
-            return { repoId, branch, filePath, content };
-          } catch (err) {
-            return { error: (err as Error).message };
-          }
-        },
-      }),
-
-      grepInRepo: tool({
-        description:
-          "Search for a text pattern in files at a given branch. Returns matching lines with file, line number, and content.",
-        inputSchema: z.object({
-          repoId: z.string().describe("The repo ID"),
-          branch: z.string().describe("Branch to search in"),
-          pattern: z.string().describe("Search pattern (plain text or regex)"),
-        }),
-        execute: async ({ repoId, branch, pattern }) => {
-          try {
-            const matches = grepInRepo(repoId, branch, pattern);
-            logTool(
-              "grepInRepo",
-              `${repoId}/${branch} "${pattern}" → ${matches.length} matches`
-            );
-            return { repoId, branch, pattern, matches };
-          } catch (err) {
-            return { error: (err as Error).message };
-          }
-        },
-      }),
-
-      listFiles: tool({
-        description:
-          "List files in a branch, optionally under a directory. Use to explore the codebase structure.",
-        inputSchema: z.object({
-          repoId: z.string().describe("The repo ID"),
-          branch: z.string().describe("Branch to list from"),
-          dirPath: z
-            .string()
-            .optional()
-            .describe("Optional subdirectory (e.g. src/)"),
-        }),
-        execute: async ({ repoId, branch, dirPath }) => {
-          const files = listFilesAtRef(repoId, branch, dirPath ?? "");
-          logTool(
-            "listFiles",
-            `${repoId}/${branch}${dirPath ? `/${dirPath}` : ""} → ${
-              files.length
-            } files`
-          );
-          return { repoId, branch, dirPath: dirPath ?? "", files };
-        },
-      }),
-
-      listBranches: tool({
-        description:
-          "List branches in a repo. Use to see what branches exist (master, feature branches, etc).",
-        inputSchema: z.object({
-          repoId: z.string().describe("The repo ID"),
-        }),
-        execute: async ({ repoId }) => {
-          const branches = listBranches(repoId);
-          logTool("listBranches", `${repoId} → ${branches.length} branches`);
-          return { repoId, branches };
-        },
-      }),
-
-      inspectBranch: tool({
-        description:
-          "Get the HEAD commit hash of a branch. Use to confirm a branch exists and to see what commit it points to.",
-        inputSchema: z.object({
-          repoId: z.string().describe("The repo ID"),
-          branch: z.string().describe("Branch name to inspect"),
-        }),
-        execute: async ({ repoId, branch }) => {
-          try {
-            const commitHash = getCommitHash(repoId, branch);
-            logTool("inspectBranch", `${repoId}/${branch} → ${commitHash}`);
-            return { repoId, branch, commitHash };
-          } catch (err) {
-            return { error: (err as Error).message };
-          }
-        },
-      }),
-
-      getProposalDiff: tool({
-        description:
-          "Returns the unified diff of code changes proposed in a given proposal.",
-        inputSchema: z.object({
+function buildGitchainMcpServer(contracts: Contracts) {
+  return createSdkMcpServer({
+    name: "gitchain",
+    version: "1.0.0",
+    tools: [
+      tool(
+        "getProposalDiff",
+        "Returns the unified diff of code changes proposed in a given proposal. Use for proposals in repos where you don't have a clone.",
+        {
           proposalId: z.string().describe("The proposal ID as a string"),
-        }),
-        execute: async ({ proposalId }) => {
+        },
+        async ({ proposalId }) => {
           const all = await getAllProposals(contracts);
           const p = all.find(
             (x: ProposalInfo) => x.id.toString() === proposalId
           );
-          if (!p) return { error: "Proposal not found" };
-
+          if (!p) {
+            return {
+              content: [
+                {
+                  type: "text" as const,
+                  text: JSON.stringify({ error: "Proposal not found" }),
+                },
+              ],
+            };
+          }
           const diff = getDiff(p.repoId, "master", p.branchName);
           logTool(
             "getProposalDiff",
             `proposal #${proposalId} (${p.branchName})`
           );
-          return { proposalId, branch: p.branchName, diff };
-        },
-      }),
-
-      approveProposal: tool({
-        description:
-          "Vote to approve a proposal. Use when the change looks correct and safe.",
-        inputSchema: z.object({
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: JSON.stringify({
+                  proposalId,
+                  branch: p.branchName,
+                  diff,
+                }),
+              },
+            ],
+          };
+        }
+      ),
+      tool(
+        "approveProposal",
+        "Vote to approve a proposal. Use when the change looks correct and safe.",
+        {
           proposalId: z.string().describe("The proposal ID to approve"),
           reason: z.string().describe("Brief reason for approving"),
-        }),
-        execute: async ({ proposalId, reason }) => {
+        },
+        async ({ proposalId, reason }) => {
           await castVote(contracts, BigInt(proposalId), true);
           logTool(
             "approveProposal",
             chalk.green(`#${proposalId} APPROVED — "${reason}"`)
           );
-          return { status: "voted", vote: "approve", proposalId, reason };
-        },
-      }),
-
-      rejectProposal: tool({
-        description:
-          "Vote to reject a proposal. Use when the change is problematic or unclear.",
-        inputSchema: z.object({
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: JSON.stringify({
+                  status: "voted",
+                  vote: "approve",
+                  proposalId,
+                  reason,
+                }),
+              },
+            ],
+          };
+        }
+      ),
+      tool(
+        "rejectProposal",
+        "Vote to reject a proposal. Use when the change is problematic or unclear.",
+        {
           proposalId: z.string().describe("The proposal ID to reject"),
           reason: z.string().describe("Brief reason for rejecting"),
-        }),
-        execute: async ({ proposalId, reason }) => {
+        },
+        async ({ proposalId, reason }) => {
           await castVote(contracts, BigInt(proposalId), false);
           logTool(
             "rejectProposal",
             chalk.red(`#${proposalId} REJECTED — "${reason}"`)
           );
-          return { status: "voted", vote: "reject", proposalId, reason };
-        },
-      }),
-    },
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: JSON.stringify({
+                  status: "voted",
+                  vote: "reject",
+                  proposalId,
+                  reason,
+                }),
+              },
+            ],
+          };
+        }
+      ),
+    ],
   });
 }
 
 // ── Main poll loop ────────────────────────────────────────────────────────────
 
 async function runAgent(): Promise<void> {
+  const model = "claude-sonnet-4-6";
   log(`Starting (wallet index ${WALLET_INDEX}, model: ${model})`);
 
   const addresses = await waitForAddresses();
@@ -269,7 +179,7 @@ async function runAgent(): Promise<void> {
 
   log(`Connected. Signer: ${chalk.dim(signerAddress)}`);
 
-  const agent = buildAgent(contracts, signerAddress);
+  const mcpServer = buildGitchainMcpServer(contracts);
 
   log("Entering poll loop...\n");
 
@@ -281,17 +191,57 @@ async function runAgent(): Promise<void> {
         log(chalk.dim("No open proposals to review"));
       } else {
         log(`Found ${unvoted.length} open proposal(s) to review`);
-        const proposalList = unvoted
-          .map(
-            (p) =>
-              `- #${p.id} (${p.repoId}/${p.branch}): ${
-                p.description || "(no description)"
-              }`
-          )
-          .join("\n");
-        await agent.generate({
-          prompt: `Review these open proposals:\n${proposalList}\n\nFor each, call getProposalDiff then approve or reject with a brief reason.`,
-        });
+        const first = unvoted[0];
+        const clonePath = createReviewClone(first.repoId, first.branch);
+        try {
+          const proposalList = unvoted
+            .map(
+              (p) =>
+                `- #${p.id} (${p.repoId}/${p.branch}): ${
+                  p.description || "(no description)"
+                }`
+            )
+            .join("\n");
+
+          const prompt = `You are ${AGENT_NAME}, an AI code reviewer in the gitchain system.
+Your wallet address is ${signerAddress}.
+
+Review these open proposals you have not yet voted on:
+${proposalList}
+
+For each proposal:
+1. Use getProposalDiff to get the code changes.
+2. Use Read, Grep, or Glob to inspect relevant files in the clone if needed.
+3. Call approveProposal or rejectProposal with a brief reason.
+
+The clone is checked out to the first proposal's branch (${first.branch}).
+
+You MUST vote (approve or reject) on every proposal in the list. Provide a brief reason for each vote. When done with all, stop.`;
+
+          const q = query({
+            prompt,
+            options: {
+              cwd: clonePath,
+              model,
+              mcpServers: { gitchain: mcpServer },
+              allowedTools: [
+                "Read",
+                "Grep",
+                "Glob",
+                "mcp__gitchain__getProposalDiff",
+                "mcp__gitchain__approveProposal",
+                "mcp__gitchain__rejectProposal",
+              ],
+            },
+          });
+
+          for await (const _msg of q) {
+            // consume messages until done
+          }
+          q.close();
+        } finally {
+          removeReviewClone(clonePath);
+        }
       }
     } catch (err) {
       const msg = (err as Error).message ?? "";
