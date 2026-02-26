@@ -9,6 +9,7 @@
  */
 import chalk from "chalk";
 
+import { DEFAULT_BRANCH } from "./config";
 import { getContracts, recordMerge } from "./chain";
 import { mergeBranch } from "./git";
 import { waitForAddresses, sleep } from "./config";
@@ -50,7 +51,7 @@ async function startBridge(): Promise<void> {
 
         console.log(
           chalk.cyan(
-            `[bridge] Merging branch "${branchName}" into master in repo "${repoId}"...`
+            `[bridge] Merging branch "${branchName}" into ${DEFAULT_BRANCH} in repo "${repoId}"...`
           )
         );
 

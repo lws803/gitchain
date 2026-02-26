@@ -25,7 +25,12 @@ import {
 } from "./chain";
 import { getDiff, createReviewClone, removeReviewClone } from "./git";
 import type { ProposalInfo } from "./config";
-import { waitForAddresses, sleep, POLL_INTERVAL_MS } from "./config";
+import {
+  DEFAULT_BRANCH,
+  waitForAddresses,
+  sleep,
+  POLL_INTERVAL_MS,
+} from "./config";
 import type { Contracts } from "./chain";
 
 // ── CLI args ─────────────────────────────────────────────────────────────────
@@ -88,7 +93,7 @@ function buildGitchainMcpServer(contracts: Contracts) {
               ],
             };
           }
-          const diff = getDiff(p.repoId, "master", p.branchName);
+          const diff = getDiff(p.repoId, DEFAULT_BRANCH, p.branchName);
           logTool(
             "getProposalDiff",
             `proposal #${proposalId} (${p.branchName})`

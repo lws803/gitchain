@@ -8,7 +8,7 @@ import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
 
-import { REPOS_DIR } from "./config";
+import { DEFAULT_BRANCH, REPOS_DIR } from "./config";
 
 // ── Repo helpers ──────────────────────────────────────────────────────────────
 
@@ -47,7 +47,9 @@ export function createInitialCommit(
   const wt = worktreePath(repoId, "init");
 
   fs.mkdirSync(wt, { recursive: true });
-  child_process.execFileSync("git", ["init", "-b", "master"], { cwd: wt });
+  child_process.execFileSync("git", ["init", "-b", DEFAULT_BRANCH], {
+    cwd: wt,
+  });
 
   for (const [filePath, content] of Object.entries(files)) {
     const fullPath = path.join(wt, filePath);
@@ -80,7 +82,7 @@ export function createInitialCommit(
   child_process.execFileSync("git", ["remote", "add", "origin", bare], {
     cwd: wt,
   });
-  child_process.execFileSync("git", ["push", "-u", "origin", "master"], {
+  child_process.execFileSync("git", ["push", "-u", "origin", DEFAULT_BRANCH], {
     cwd: wt,
   });
 
@@ -108,7 +110,13 @@ export async function createBranchWithChanges(
 
   // Clone, branch, commit, push — isomorphic-git doesn't support file://; use shell git
   fs.mkdirSync(wt, { recursive: true });
-  child_process.execFileSync("git", ["clone", "--branch", "master", bare, wt]);
+  child_process.execFileSync("git", [
+    "clone",
+    "--branch",
+    DEFAULT_BRANCH,
+    bare,
+    wt,
+  ]);
   child_process.execFileSync("git", ["checkout", "-b", branch], { cwd: wt });
 
   for (const [filePath, content] of Object.entries(files)) {
@@ -193,7 +201,7 @@ export async function mergeBranch(
         "merge",
         `origin/${featureBranch}`,
         "-m",
-        `Merge branch '${featureBranch}' into master via gitchain`,
+        `Merge branch '${featureBranch}' into ${DEFAULT_BRANCH} via gitchain`,
       ],
       {
         cwd: wt,
@@ -211,7 +219,7 @@ export async function mergeBranch(
       })
       .trim();
 
-    child_process.execFileSync("git", ["push", "origin", "master"], {
+    child_process.execFileSync("git", ["push", "origin", DEFAULT_BRANCH], {
       cwd: wt,
       env: {
         ...process.env,
@@ -259,12 +267,12 @@ export function removeReviewClone(clonePath: string): void {
 
 // ── Install hooks ─────────────────────────────────────────────────────────────
 
-/** Env var the bridge sets when pushing to master. Pre-receive allows master push only when set. */
+/** Env var the bridge sets when pushing to the default branch. Pre-receive allows that push only when set. */
 export const GITCHAIN_BRIDGE_MERGE = "GITCHAIN_BRIDGE_MERGE";
 
 /**
  * Installs the pre-receive hook into the bare repo.
- * Rejects direct pushes to master; the bridge sets GITCHAIN_BRIDGE_MERGE=1 when merging.
+ * Rejects direct pushes to the default branch; the bridge sets GITCHAIN_BRIDGE_MERGE=1 when merging.
  */
 export function installPreReceiveHook(repoId: string): void {
   const dir = repoPath(repoId);
@@ -273,14 +281,14 @@ export function installPreReceiveHook(repoId: string): void {
 
   const hookPath = path.join(hooksDir, "pre-receive");
   const hookScript = `#!/bin/sh
-# pre-receive hook — reject direct pushes to master; bridge sets GITCHAIN_BRIDGE_MERGE when merging
+# pre-receive hook — reject direct pushes to ${DEFAULT_BRANCH}; bridge sets GITCHAIN_BRIDGE_MERGE when merging
 while read oldrev newrev refname; do
   case "$refname" in
-    refs/heads/master)
+    refs/heads/${DEFAULT_BRANCH})
       if [ "$GITCHAIN_BRIDGE_MERGE" = "1" ]; then
         :
       else
-        echo "error: Direct pushes to master are rejected. Create a branch and push it for review."
+        echo "error: Direct pushes to ${DEFAULT_BRANCH} are rejected. Create a branch and push it for review."
         exit 1
       fi
       ;;
@@ -308,8 +316,8 @@ export function installPostReceiveHook(repoId: string): void {
 while read oldrev newrev refname; do
   branch=$(echo "$refname" | sed 's|refs/heads/||')
 
-  # Skip main — merges land here via the bridge, not direct push
-  if [ "$branch" = "master" ] || [ "$branch" = "HEAD" ]; then
+  # Skip default branch — merges land here via the bridge, not direct push
+  if [ "$branch" = "${DEFAULT_BRANCH}" ] || [ "$branch" = "HEAD" ]; then
     continue
   fi
 

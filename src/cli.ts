@@ -21,7 +21,7 @@ import {
   getProposal,
 } from "./chain";
 import { getDiff } from "./git";
-import { ProposalState, stateLabel } from "./config";
+import { DEFAULT_BRANCH, ProposalState, stateLabel } from "./config";
 
 const program = new Command();
 
@@ -172,7 +172,7 @@ program
         chalk.bold(`\nDiff for Proposal #${p.id} — ${p.branchName}\n`)
       );
 
-      const diffText = getDiff(p.repoId, "master", p.branchName);
+      const diffText = getDiff(p.repoId, DEFAULT_BRANCH, p.branchName);
 
       // Colorize diff output
       for (const line of diffText.split("\n")) {
