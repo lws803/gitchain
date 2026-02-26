@@ -210,11 +210,11 @@ Review these open proposals you have not yet voted on:
 ${proposalList}
 
 For each proposal:
-1. Run \`git diff master..HEAD\` (or \`git diff master..origin/${first.branch}\` for the current branch) to see the changes.
-2. Use Read, Grep, or Glob to inspect relevant files if needed.
+1. Use getProposalDiff to get the code changes.
+2. Use Read, Grep, or Glob to inspect relevant files in the worktree if needed.
 3. Call approveProposal or rejectProposal with a brief reason.
 
-The worktree is checked out to the first proposal's branch (${first.branch}). For other proposals in the same repo, you may need to run \`git fetch origin\` and \`git diff master..origin/<branch>\` to see their diffs.
+The worktree is checked out to the first proposal's branch (${first.branch}).
 
 You MUST vote (approve or reject) on every proposal in the list. Provide a brief reason for each vote. When done with all, stop.`;
 
@@ -228,7 +228,6 @@ You MUST vote (approve or reject) on every proposal in the list. Provide a brief
                 "Read",
                 "Grep",
                 "Glob",
-                "Bash",
                 "mcp__gitchain__getProposalDiff",
                 "mcp__gitchain__approveProposal",
                 "mcp__gitchain__rejectProposal",
