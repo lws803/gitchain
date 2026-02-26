@@ -5,6 +5,7 @@
  */
 import * as child_process from "child_process";
 import * as fs from "fs";
+import * as os from "os";
 import * as path from "path";
 
 import { REPOS_DIR } from "./config";
@@ -223,48 +224,37 @@ export async function mergeBranch(
   }
 }
 
-// ── Review worktree (for Claude Agent SDK) ───────────────────────────────────
+// ── Review clone (for Claude Agent SDK) ───────────────────────────────────────
 
 /**
- * Creates a temporary worktree checked out to the given branch.
- * Used by review agents so Claude Agent SDK's Read/Grep/Glob/Bash can operate on real files.
- * Call removeReviewWorktree when done.
+ * Creates a temporary clone checked out to the given branch.
+ * Used by review agents so Claude Agent SDK's Read/Grep/Glob can operate on real files.
+ * Uses clone so multiple agents can review the same branch concurrently without conflicts.
+ * Call removeReviewClone when done.
  */
-export function createReviewWorktree(repoId: string, branch: string): string {
+export function createReviewClone(repoId: string, branch: string): string {
   const bare = repoPath(repoId);
-  const wt = path.join(REPOS_DIR, `.wt-${repoId}-${Date.now()}`);
-  fs.mkdirSync(path.dirname(wt), { recursive: true });
+  const randomId = Math.random().toString(36).slice(2, 10);
+  const clonePath = path.join(
+    os.tmpdir(),
+    `gitchain-clone-${repoId}-${Date.now()}-${randomId}`
+  );
+  fs.mkdirSync(path.dirname(clonePath), { recursive: true });
   child_process.execFileSync("git", [
-    "--git-dir",
-    bare,
-    "worktree",
-    "add",
-    wt,
+    "clone",
+    "--branch",
     branch,
+    bare,
+    clonePath,
   ]);
-  return wt;
+  return clonePath;
 }
 
 /**
- * Removes a review worktree created by createReviewWorktree.
+ * Removes a review clone created by createReviewClone.
  */
-export function removeReviewWorktree(
-  worktreePath: string,
-  repoId: string
-): void {
-  const bare = repoPath(repoId);
-  try {
-    child_process.execFileSync("git", [
-      "--git-dir",
-      bare,
-      "worktree",
-      "remove",
-      "--force",
-      worktreePath,
-    ]);
-  } catch {
-    fs.rmSync(worktreePath, { recursive: true, force: true });
-  }
+export function removeReviewClone(clonePath: string): void {
+  fs.rmSync(clonePath, { recursive: true, force: true });
 }
 
 // ── Install hooks ─────────────────────────────────────────────────────────────

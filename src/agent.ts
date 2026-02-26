@@ -3,8 +3,8 @@
  *
  * Each agent runs as a separate process with its own wallet (index).
  * It polls every POLL_INTERVAL_MS for open proposals it hasn't voted on,
- * creates a temporary worktree for the proposal branch, runs Claude with
- * built-in Read/Grep/Glob/Bash plus custom approve/reject tools, then removes the worktree.
+ * creates a temporary clone for the proposal branch, runs Claude with
+ * built-in Read/Grep/Glob plus custom approve/reject tools, then removes the clone.
  *
  * Run: node dist/src/agent.js --wallet 1 --name Alice
  */
@@ -23,7 +23,7 @@ import {
   castVote,
   getOpenUnvotedProposals,
 } from "./chain";
-import { getDiff, createReviewWorktree, removeReviewWorktree } from "./git";
+import { getDiff, createReviewClone, removeReviewClone } from "./git";
 import type { ProposalInfo } from "./config";
 import { waitForAddresses, sleep, POLL_INTERVAL_MS } from "./config";
 import type { Contracts } from "./chain";
@@ -69,7 +69,7 @@ function buildGitchainMcpServer(contracts: Contracts) {
     tools: [
       tool(
         "getProposalDiff",
-        "Returns the unified diff of code changes proposed in a given proposal. Use for proposals in repos where you don't have a worktree.",
+        "Returns the unified diff of code changes proposed in a given proposal. Use for proposals in repos where you don't have a clone.",
         {
           proposalId: z.string().describe("The proposal ID as a string"),
         },
@@ -192,7 +192,7 @@ async function runAgent(): Promise<void> {
       } else {
         log(`Found ${unvoted.length} open proposal(s) to review`);
         const first = unvoted[0];
-        const worktreePath = createReviewWorktree(first.repoId, first.branch);
+        const clonePath = createReviewClone(first.repoId, first.branch);
         try {
           const proposalList = unvoted
             .map(
@@ -211,17 +211,17 @@ ${proposalList}
 
 For each proposal:
 1. Use getProposalDiff to get the code changes.
-2. Use Read, Grep, or Glob to inspect relevant files in the worktree if needed.
+2. Use Read, Grep, or Glob to inspect relevant files in the clone if needed.
 3. Call approveProposal or rejectProposal with a brief reason.
 
-The worktree is checked out to the first proposal's branch (${first.branch}).
+The clone is checked out to the first proposal's branch (${first.branch}).
 
 You MUST vote (approve or reject) on every proposal in the list. Provide a brief reason for each vote. When done with all, stop.`;
 
           const q = query({
             prompt,
             options: {
-              cwd: worktreePath,
+              cwd: clonePath,
               model,
               mcpServers: { gitchain: mcpServer },
               allowedTools: [
@@ -240,7 +240,7 @@ You MUST vote (approve or reject) on every proposal in the list. Provide a brief
           }
           q.close();
         } finally {
-          removeReviewWorktree(worktreePath, first.repoId);
+          removeReviewClone(clonePath);
         }
       }
     } catch (err) {
