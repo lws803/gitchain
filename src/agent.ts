@@ -19,7 +19,14 @@ import {
   castVote,
   getOpenUnvotedProposals,
 } from "./chain";
-import { getDiff } from "./git";
+import {
+  getDiff,
+  readFileAtRef,
+  listBranches,
+  listFilesAtRef,
+  grepInRepo,
+  getCommitHash,
+} from "./git";
 import {
   waitForAddresses,
   sleep,
@@ -78,12 +85,120 @@ function buildAgent(contracts: Contracts, signerAddress: string) {
 Your wallet address is ${signerAddress}.
 
 You are given a list of open proposals you have not yet voted on.
-For each proposal, call getProposalDiff to read the code changes, then
-call approveProposal if the change looks correct and safe, or rejectProposal
+For each proposal, you can:
+- getProposalDiff — get the unified diff
+- readFile — read a file at a specific branch (use master or the proposal branch)
+- grepInRepo — search for a pattern in files at a branch
+- listFiles — list files in a branch
+- listBranches — list branches in the repo
+- inspectBranch — get the HEAD commit of a branch (confirm it exists)
+
+Then approveProposal if the change looks correct and safe, or rejectProposal
 if it introduces a bug, breaks existing logic, or is unclear. Always provide a brief reason.
 When done with all proposals, stop calling tools.`,
 
     tools: {
+      readFile: tool({
+        description:
+          "Read the contents of a file at a given branch in a repo. Use to inspect full file context beyond the diff.",
+        inputSchema: z.object({
+          repoId: z.string().describe("The repo ID (e.g. from a proposal)"),
+          branch: z
+            .string()
+            .describe(
+              "Branch to read from (e.g. master or the proposal branch)"
+            ),
+          filePath: z
+            .string()
+            .describe("Path to the file relative to repo root"),
+        }),
+        execute: async ({ repoId, branch, filePath }) => {
+          try {
+            const content = readFileAtRef(repoId, branch, filePath);
+            logTool("readFile", `${repoId}/${branch}:${filePath}`);
+            return { repoId, branch, filePath, content };
+          } catch (err) {
+            return { error: (err as Error).message };
+          }
+        },
+      }),
+
+      grepInRepo: tool({
+        description:
+          "Search for a text pattern in files at a given branch. Returns matching lines with file, line number, and content.",
+        inputSchema: z.object({
+          repoId: z.string().describe("The repo ID"),
+          branch: z.string().describe("Branch to search in"),
+          pattern: z.string().describe("Search pattern (plain text or regex)"),
+        }),
+        execute: async ({ repoId, branch, pattern }) => {
+          try {
+            const matches = grepInRepo(repoId, branch, pattern);
+            logTool(
+              "grepInRepo",
+              `${repoId}/${branch} "${pattern}" → ${matches.length} matches`
+            );
+            return { repoId, branch, pattern, matches };
+          } catch (err) {
+            return { error: (err as Error).message };
+          }
+        },
+      }),
+
+      listFiles: tool({
+        description:
+          "List files in a branch, optionally under a directory. Use to explore the codebase structure.",
+        inputSchema: z.object({
+          repoId: z.string().describe("The repo ID"),
+          branch: z.string().describe("Branch to list from"),
+          dirPath: z
+            .string()
+            .optional()
+            .describe("Optional subdirectory (e.g. src/)"),
+        }),
+        execute: async ({ repoId, branch, dirPath }) => {
+          const files = listFilesAtRef(repoId, branch, dirPath ?? "");
+          logTool(
+            "listFiles",
+            `${repoId}/${branch}${dirPath ? `/${dirPath}` : ""} → ${
+              files.length
+            } files`
+          );
+          return { repoId, branch, dirPath: dirPath ?? "", files };
+        },
+      }),
+
+      listBranches: tool({
+        description:
+          "List branches in a repo. Use to see what branches exist (master, feature branches, etc).",
+        inputSchema: z.object({
+          repoId: z.string().describe("The repo ID"),
+        }),
+        execute: async ({ repoId }) => {
+          const branches = listBranches(repoId);
+          logTool("listBranches", `${repoId} → ${branches.length} branches`);
+          return { repoId, branches };
+        },
+      }),
+
+      inspectBranch: tool({
+        description:
+          "Get the HEAD commit hash of a branch. Use to confirm a branch exists and to see what commit it points to.",
+        inputSchema: z.object({
+          repoId: z.string().describe("The repo ID"),
+          branch: z.string().describe("Branch name to inspect"),
+        }),
+        execute: async ({ repoId, branch }) => {
+          try {
+            const commitHash = getCommitHash(repoId, branch);
+            logTool("inspectBranch", `${repoId}/${branch} → ${commitHash}`);
+            return { repoId, branch, commitHash };
+          } catch (err) {
+            return { error: (err as Error).message };
+          }
+        },
+      }),
+
       getProposalDiff: tool({
         description:
           "Returns the unified diff of code changes proposed in a given proposal.",

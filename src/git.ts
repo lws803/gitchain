@@ -235,7 +235,80 @@ export async function mergeBranch(
   }
 }
 
-// ── Read file ─────────────────────────────────────────────────────────────────
+// ── Exploration (for agents) ──────────────────────────────────────────────────
+
+/**
+ * Lists branches in the repo.
+ */
+export function listBranches(repoId: string): string[] {
+  const dir = repoPath(repoId);
+  const out = child_process.execFileSync(
+    "git",
+    ["--git-dir", dir, "branch", "-a"],
+    { encoding: "utf8" }
+  );
+  return out
+    .split("\n")
+    .map((b) =>
+      b
+        .replace(/^\*\s*/, "")
+        .replace(/^remotes\/origin\//, "")
+        .trim()
+    )
+    .filter(Boolean);
+}
+
+/**
+ * Lists files in a branch (optionally under a directory).
+ */
+export function listFilesAtRef(
+  repoId: string,
+  branch: string,
+  dirPath = ""
+): string[] {
+  const dir = repoPath(repoId);
+  const ref = dirPath ? `${branch}:${dirPath}` : branch;
+  try {
+    const out = child_process.execFileSync(
+      "git",
+      ["--git-dir", dir, "ls-tree", "-r", "--name-only", ref],
+      { encoding: "utf8" }
+    );
+    return out.trim().split("\n").filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Search for a pattern in files at a given branch. Returns matching lines.
+ */
+export function grepInRepo(
+  repoId: string,
+  branch: string,
+  pattern: string
+): { file: string; line: number; content: string }[] {
+  const dir = repoPath(repoId);
+  try {
+    const out = child_process.execFileSync(
+      "git",
+      ["--git-dir", dir, "grep", "-n", "-e", pattern, branch, "--"],
+      { encoding: "utf8", maxBuffer: 1024 * 1024 }
+    );
+    const results: { file: string; line: number; content: string }[] = [];
+    for (const line of out.trim().split("\n")) {
+      const m = line.match(/^([^:]+):(\d+):(.+)$/);
+      if (m)
+        results.push({ file: m[1], line: parseInt(m[2], 10), content: m[3] });
+    }
+    return results;
+  } catch (err) {
+    // git grep exits 1 when no matches
+    const code = (err as { code?: number }).code;
+    if (code === 1) return [];
+    throw err;
+  }
+}
 
 /**
  * Reads the content of a file at a specific branch/ref in the bare repo.
