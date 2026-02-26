@@ -14,7 +14,13 @@ import * as fs from "fs";
 import * as path from "path";
 import { ethers } from "ethers";
 import chalk from "chalk";
-import { HARDHAT_RPC, REPOS_DIR, saveAddresses, sleep } from "../src/config";
+import {
+  DEFAULT_BRANCH,
+  HARDHAT_RPC,
+  REPOS_DIR,
+  saveAddresses,
+  sleep,
+} from "../src/config";
 import {
   initBareRepo,
   createInitialCommit,
@@ -36,7 +42,12 @@ const REVIEWERS = [
 function loadArtifact(name: string): { abi: unknown[]; bytecode: string } {
   const candidates = [
     path.join("/app/artifacts/contracts", `${name}.sol`, `${name}.json`),
-    path.join(__dirname, "../artifacts/contracts", `${name}.sol`, `${name}.json`),
+    path.join(
+      __dirname,
+      "../artifacts/contracts",
+      `${name}.sol`,
+      `${name}.json`
+    ),
   ];
   for (const p of candidates) {
     if (fs.existsSync(p)) {
@@ -49,7 +60,9 @@ function loadArtifact(name: string): { abi: unknown[]; bytecode: string } {
 // ── 1. Wait for Hardhat ───────────────────────────────────────────────────────
 
 async function waitForHardhat(): Promise<ethers.JsonRpcProvider> {
-  console.log(chalk.cyan(`[setup] Waiting for Hardhat node at ${HARDHAT_RPC}...`));
+  console.log(
+    chalk.cyan(`[setup] Waiting for Hardhat node at ${HARDHAT_RPC}...`)
+  );
   while (true) {
     try {
       const provider = new ethers.JsonRpcProvider(HARDHAT_RPC);
@@ -93,7 +106,9 @@ async function deployContracts(
   const pm = await PMFactory.deploy(registryAddress, APPROVAL_THRESHOLD);
   await pm.waitForDeployment();
   const proposalManagerAddress = await pm.getAddress();
-  console.log(chalk.green(`[setup]   ProposalManager:   ${proposalManagerAddress}`));
+  console.log(
+    chalk.green(`[setup]   ProposalManager:   ${proposalManagerAddress}`)
+  );
   console.log(chalk.dim(`[setup]   Approval threshold: ${APPROVAL_THRESHOLD}`));
 
   return { registryAddress, proposalManagerAddress };
@@ -112,7 +127,9 @@ async function registerReviewers(addresses: {
   const provider = contracts.provider;
 
   for (const r of REVIEWERS) {
-    const walletAddress = await (await provider.getSigner(r.index)).getAddress();
+    const walletAddress = await (
+      await provider.getSigner(r.index)
+    ).getAddress();
     await registerReviewer(contracts, walletAddress, r.name, r.publicKey);
     console.log(
       chalk.green(`[setup]   ${r.name} (wallet ${r.index}): ${walletAddress}`)
@@ -124,16 +141,18 @@ async function registerReviewers(addresses: {
 
 async function initSampleRepo(): Promise<void> {
   const repoDir = path.join(REPOS_DIR, SAMPLE_REPO);
-  const masterRef = path.join(repoDir, "refs", "heads", "master");
+  const mainRef = path.join(repoDir, "refs", "heads", DEFAULT_BRANCH);
 
   // Skip only if repo exists AND has the initial commit (not just an empty bare repo from a failed run)
   // TODO: uncomment this for persistence
-  // if (fs.existsSync(masterRef)) {
+  // if (fs.existsSync(mainRef)) {
   //   console.log(chalk.dim(`\n[setup] Repo "${SAMPLE_REPO}" already exists — skipping init.`));
   //   return;
   // }
 
-  console.log(chalk.cyan(`\n[setup] Initialising sample repo "${SAMPLE_REPO}"...`));
+  console.log(
+    chalk.cyan(`\n[setup] Initialising sample repo "${SAMPLE_REPO}"...`)
+  );
 
   fs.mkdirSync(REPOS_DIR, { recursive: true });
 
@@ -180,9 +199,7 @@ function installHooks(): void {
 // ── Main ──────────────────────────────────────────────────────────────────────
 
 async function main(): Promise<void> {
-  console.log(chalk.bold.cyan("\n╔══════════════════════════════╗"));
-  console.log(chalk.bold.cyan("║     Gitchain Setup           ║"));
-  console.log(chalk.bold.cyan("╚══════════════════════════════╝\n"));
+  console.log(chalk.bold.cyan("\nGitchain Setup\n"));
 
   const provider = await waitForHardhat();
 
@@ -194,22 +211,20 @@ async function main(): Promise<void> {
   await initSampleRepo();
   installHooks();
 
-  console.log(chalk.bold.green("\n╔══════════════════════════════════════════════════╗"));
-  console.log(chalk.bold.green("║  Gitchain is ready!                              ║"));
-  console.log(chalk.bold.green("╠══════════════════════════════════════════════════╣"));
-  console.log(chalk.bold.green("║  Clone the repo and push a branch:               ║"));
-  console.log(chalk.bold.green("║                                                  ║"));
-  console.log(chalk.bold.green("║    git clone git://localhost:9418/sample-repo    ║"));
-  console.log(chalk.bold.green("║    cd sample-repo                                ║"));
-  console.log(chalk.bold.green("║    git checkout -b feature/add-farewell          ║"));
-  console.log(chalk.bold.green("║    # Edit hello.ts — add a farewell() function   ║"));
-  console.log(chalk.bold.green("║    git add . && git commit -m 'Add farewell'    ║"));
-  console.log(chalk.bold.green("║    git push -u origin feature/add-farewell       ║"));
-  console.log(chalk.bold.green("║                                                  ║"));
-  console.log(chalk.bold.green("║  Visualize the review process:                   ║"));
-  console.log(chalk.bold.green("║    docker compose logs -f agent-alice agent-bob  ║"));
-  console.log(chalk.bold.green("║      agent-charlie bridge                        ║"));
-  console.log(chalk.bold.green("╚══════════════════════════════════════════════════╝\n"));
+  console.log(chalk.bold.green("\nGitchain is ready!"));
+  console.log(chalk.dim("\nClone and push a branch:"));
+  console.log(chalk.dim("  git clone git://localhost:9418/sample-repo"));
+  console.log(chalk.dim("  cd sample-repo"));
+  console.log(chalk.dim("  git checkout -b feature/add-farewell"));
+  console.log(chalk.dim("  # Edit hello.ts — add a farewell() function"));
+  console.log(chalk.dim("  git add . && git commit -m 'Add farewell'"));
+  console.log(chalk.dim("  git push -u origin feature/add-farewell"));
+  console.log(chalk.dim("\nVisualize the review process:"));
+  console.log(
+    chalk.dim(
+      "  docker compose logs -f agent-alice agent-bob agent-charlie bridge\n"
+    )
+  );
 }
 
 main()

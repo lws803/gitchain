@@ -19,6 +19,9 @@ export const REPOS_DIR = fs.existsSync("/app/repos")
 
 export const ADDRESSES_FILE = path.join(SHARED_DIR, "deployed.json");
 
+/** Default branch name for gitchain-managed repos (e.g. sample-repo). */
+export const DEFAULT_BRANCH = "main";
+
 // ── Timing ─────────────────────────────────────────────────────────────────────
 
 /** How often agents poll for new proposals (ms). */
